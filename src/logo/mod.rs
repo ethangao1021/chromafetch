@@ -1,3 +1,5 @@
+pub mod data;
+
 pub struct Logo {
     pub lines: Vec<String>,
     pub width: usize,
@@ -6,15 +8,33 @@ pub struct Logo {
 }
 
 impl Logo {
-    fn from_ascii(ascii: &str) -> Self {
-        let lines: Vec<String> = ascii.lines().map(|l| l.to_string()).collect();
-        let height = lines.len();
-        let width = lines.iter().map(|l| l.len()).max().unwrap_or(0);
-        Self { lines, width, height }
+    pub fn from_entry(entry: &data::LogoEntry) -> Self {
+        let raw_lines: Vec<&str> = entry.lines.split('\n').collect();
+        let height = raw_lines.len();
+        let rendered: Vec<String> = raw_lines.iter().map(|l| data::render_line(l, entry.colors)).collect();
+        let width = rendered.iter().map(|l| visible_width(l)).max().unwrap_or(0);
+        Self { lines: rendered, width, height }
     }
 }
 
-fn detect_distro() -> &'static str {
+fn visible_width(s: &str) -> usize {
+    let mut len = 0;
+    let mut in_escape = false;
+    for ch in s.chars() {
+        if ch == '\x1b' {
+            in_escape = true;
+        } else if in_escape {
+            if ch == 'm' {
+                in_escape = false;
+            }
+        } else {
+            len += 1;
+        }
+    }
+    len
+}
+
+fn detect_distro_id() -> &'static str {
     let content = std::fs::read_to_string("/etc/os-release").ok()
         .or_else(|| std::fs::read_to_string("/usr/lib/os-release").ok());
 
@@ -28,267 +48,41 @@ fn detect_distro() -> &'static str {
     });
 
     match id.as_deref() {
-        Some("ubuntu") | Some("debian") => "ubuntu",
+        Some("ubuntu") => "ubuntu",
+        Some("debian") => "debian",
         Some("arch") => "arch",
         Some("fedora") => "fedora",
         Some("nixos") => "nixos",
         Some("manjaro") => "manjaro",
         Some("void") => "void",
         Some("gentoo") => "gentoo",
-        Some("opensuse") | Some("suse") => "opensuse",
         Some("alpine") => "alpine",
+        Some("pop") => "pop",
+        Some("linuxmint") => "linuxmint",
+        Some(id) if id == "opensuse" || id.starts_with("opensuse-") => "opensuse",
         Some("centos") | Some("rhel") => "centos",
-        Some("pop") => "popos",
-        Some("mint") => "mint",
         Some("slackware") => "slackware",
-        Some("endeavouros") => "endeavour",
         Some("solus") => "solus",
+        Some("endeavouros") => "endeavouros",
+        Some("artix") => "artix",
+        Some("lubuntu") => "lubuntu",
+        Some("kubuntu") => "kubuntu",
         Some("freebsd") => "freebsd",
+        Some("tails") => "tails",
+        Some("steamos") => "steamos",
+        Some("raspbian") => "raspbian",
+        Some("zorin") => "zorin",
+        Some("elementary") => "elementary",
+        Some("deepin") => "deepin",
+        Some("linux") => "linux",
         _ => "linux",
     }
 }
 
 pub fn detect_distro_logo() -> Logo {
-    let art = match detect_distro() {
-        "ubuntu" => UBUNTU,
-        "arch" => ARCH,
-        "fedora" => FEDORA,
-        "nixos" => NIXOS,
-        "manjaro" => MANJARO,
-        "void" => VOID,
-        "gentoo" => GENTOO,
-        "alpine" => ALPINE,
-        "popos" => POPOS,
-        "mint" => MINT,
-        "endeavour" => ENDEAVOUR,
-        "opensuse" => OPENSUSE,
-        "centos" => CENTOS,
-        "slackware" => SLACKWARE,
-        "solus" => SOLUS,
-        "freebsd" => FREEBSD,
-        _ => LINUX_LOGO,
-    };
-    Logo::from_ascii(art)
+    let id = detect_distro_id();
+    if let Some(entry) = data::resolve(id) {
+        return Logo::from_entry(entry);
+    }
+    Logo::from_entry(&data::LINUX)
 }
-
-const UBUNTU: &str = r"             .-:::::::-.
-            o-:::::::::-o
-           o-::::::--::-:o
-          o+:::.``````.-:+o
-         o+:--`        `--:+o
-        o+-:``  .-::-.. ``.:+o
-        o/:.` :/++++++/:.``-+o
-        //-.` -/+oo+++//-`.:/-
-        o/:` `:+++++++//-`.:+o
-        o+:--`  `.-::-.. ``:+o
-         o+:--`        `--:+o
-          o+::.````````.-:+o
-           o-::::::--::::-:o
-            .-::::::::::-.
-";
-
-const ARCH: &str = r"             /\            /\
-            /\ \          / /\ 
-           /  \ \        / /  \ 
-          / /\ \ \      / / /\ \
-         / /  \ \ \    / / /  \ \
-        / /    \ \ \  / / /    \ \
-       / /      \ \ \/ / /      \ \
-      / /        \ \ \/ /        \ \
-     / /          \ \ \/          \ \
-    / /            \ \/            \ \
-   /_/              \/              \_\
-";
-
-const FEDORA: &str = r"         :/-----------\:
-        :---------------:
-       -------------------
-      ---------------------
-     :----:  :----:  :----:
-    :-----:  :----:  :-----:
-   :-----::  :----:  ::-----:
-  :-----::   :----:   ::-----:
- :-----::    :----:    ::-----:
- :----::     :----:     ::----:
- :----::     :----:     ::----:
-  :----::   :------:   ::----:
-   :----:: :--------: ::----:
-    :----::--------::----:
-     :-----------------:
-      :---------------:
-       :-------------:
-";
-
-const NIXOS: &str = r"          ::::::::::::::::::
-        ::::'''''''''''''''::::
-      ::''                    '':: 
-     :'                          ':
-    :                              :
-   :                                :
-  :                                  :
- :                                    :
- :                                    :
-  :                                  :
-   :                                :
-    :                              :
-     :'                          ':
-      ::,.                    .,::
-        ::::::::::::::::::::::::::
-          `:::::::::::::::::::'
-";
-
-const MANJARO: &str = r"████████████████████████████████
-████████████████████████████████
-████████████████████████████████
-████████                       
-████████                       
-████████                       
-████████                       
-████████                       
-████████                       
-████████                       
-████████                       
-████████                       
-████████                       
-████████                       
-████████                       
-████████                       
-";
-
-const VOID: &str = r"          __   __ 
-         / /  / / 
-        / /  / /  
-       / /  / /   
-      / /  / /    
-     / /  / /     
-    / /__/ /      
-   /______/       
-  /  ____/        
- /  /__           
-/_____/           
-";
-
-const GENTOO: &str = r"          _-----_
-         |       |
-         |  ()   | 
-         |       |
-          \     /
-           \   /
-            \ /
-             V
-";
-
-const ALPINE: &str = r"       /\\ /\\
-      /  \ /  \
-     /    Y    \
-    /     |     \
-   /      |      \
-  /       |       \
- /        |        \
- \        |        /
-  \       |       /
-   \      |      /
-    \     |     /
-     \    |    /
-      \  / \  /
-       \/   \/
-";
-
-const POPOS: &str = r"         ______
-      .-'      '-.
-     /     __     \
-    |     /  \     |
-    |     |  |     |
-    |     \__/     |
-     \           /
-      '-.___.-'
-";
-
-const MINT: &str = r"            _____
-       ____|     |____
-      |                |
-      |   __________   |
-      |  |   __   |  |  
-      |  |  |  |  |  |
-      |  |  |__|  |  |
-      |  |__________|  |
-      |                |
-       |______________|
-";
-
-const ENDEAVOUR: &str = r"          .~&&&&&&&&&&&~.
-        ~&&&&&&&&&&&&&&&&~    
-      ~&&&&&&&~     ~&&&&&&&~  
-     &&&&&&&          &&&&&&&
-    &&&&&&&            &&&&&&&
-   &&&&&&&              &&&&&&&
-   &&&&&&&              &&&&&&&
-   &&&&&&&              &&&&&&&
-    &&&&&&&            &&&&&&&
-     &&&&&&&          &&&&&&&
-      ~&&&&&&&~     ~&&&&&&&~
-        ~&&&&&&&&&&&&&&&&~
-          .~&&&&&&&&&&&~.
-";
-
-const OPENSUSE: &str = r"       .'''''''.
-      /         \
-     |  .'''''.  |
-     | |       | |
-     | |       | |
-     |  '.....'  |
-      \         /
-       '.___.-'
-";
-
-const CENTOS: &str = r"         .::::::.
-        :::::::::
-       :::::::::
-       ':::::::'
-        '::::'
-          '
-";
-
-const SLACKWARE: &str = r"          _________
-        /________ /
-       /________/
-      /________/
-     /________/
-    /________/
-   /________/
-  /________/
-";
-
-const SOLUS: &str = r"         .''''''''''.
-        /      .-''-.\
-       |      /      \
-       \    .'        '
-        '--'          
-";
-
-const FREEBSD: &str = r"         /\\_
-        /  \\
-       / /\ \\
-      / /  \ \\
-     / /    \ \\
-    / /      \ \\
-   / /        \ \\
-  / /          \ \\
- / /            \ \\
- \ \            / /
-  \ \          / /
-   \ \        / /
-    \ \      / /
-     \ \    / /
-      \ \  / /
-       \ \/ /
-        \__/
-";
-
-const LINUX_LOGO: &str = r"       .---.
-      /     \
-     | () () |
-      \  ^  /
-       |||||
-       |||||
-";
