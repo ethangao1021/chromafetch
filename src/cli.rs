@@ -57,6 +57,15 @@ pub enum Commands {
         #[arg(long, help = "Invert brightness mapping")]
         invert: bool,
 
+        #[arg(long, default_value = "standard", help = "Character set: standard, detailed, block, simple, binary")]
+        charset: String,
+
+        #[arg(long, default_value = "1.0", help = "Contrast adjustment (0.0-2.0)")]
+        contrast: f64,
+
+        #[arg(long, help = "Apply Floyd-Steinberg dithering (monochrome only)")]
+        dither: bool,
+
         #[arg(long, value_name = "PATH", help = "Save to file instead of stdout")]
         save: Option<PathBuf>,
     },

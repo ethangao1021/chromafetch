@@ -17,11 +17,14 @@ fn main() {
 
     if let Some(cmd) = &cli.command {
         match cmd {
-            Commands::Ascii { path, width, color, invert, save } => {
+            Commands::Ascii { path, width, color, invert, charset, contrast, dither, save } => {
                 let opts = img2ascii::AsciiOpts {
                     width: *width,
                     color: *color,
                     invert: *invert,
+                    charset: charset.clone(),
+                    contrast: *contrast,
+                    dither: *dither,
                     save: save.clone(),
                 };
                 if let Err(e) = img2ascii::run(path, &opts) {
