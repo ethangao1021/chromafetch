@@ -107,6 +107,24 @@ fn read_first_line(path: impl AsRef<Path>) -> Option<String> {
     content.lines().next().map(|s| s.trim().to_string())
 }
 
+fn io_service_string(service_name: &str, key: &str) -> Option<String> {
+    unsafe {
+        let matching = IOServiceNameMatching(std::ffi::CString::new(service_name).unwrap().as_ptr());
+        if matching.is_null() { return None; }
+        let mut iterator: libc::c_uint = 0;
+        if IOServiceGetMatchingServices(0, matching, &mut iterator) != 0 { return None; }
+        let svc = IOIteratorNext(iterator);
+        IOObjectRelease(iterator);
+        if svc == 0 { return None; }
+        let cfkey = cfstring(key);
+        if cfkey.is_null() { IOObjectRelease(svc); return None; }
+        let val = IORegistryEntryCreateCFProperty(svc, cfkey, std::ptr::null_mut(), 0);
+        CFRelease(cfkey);
+        IOObjectRelease(svc);
+        cf_to_string(val)
+    }
+}
+
 // ── Dispatch ──
 
 pub fn detect(name: &str) -> Vec<ModuleResult> {
@@ -114,12 +132,16 @@ pub fn detect(name: &str) -> Vec<ModuleResult> {
         "OS" => os(),
         "Host" => host(),
         "Kernel" => kernel(),
+        "Architecture" => architecture(),
+        "OSBuild" => os_build(),
         "Uptime" => uptime(),
+        "Processes" => processes(),
+        "LoadAvg" => load_avg(),
         "Packages" => packages(),
         "Shell" => shell(),
         "Display" => display(),
-        "DE" => de(),
-        "WM" => wm(),
+        "DE" | "DesktopEnvironment" => de(),
+        "WM" | "WindowManager" => wm(),
         "WMTheme" => wm_theme(),
         "Theme" => theme(),
         "Icons" => icons(),
@@ -127,20 +149,53 @@ pub fn detect(name: &str) -> Vec<ModuleResult> {
         "Cursor" => cursor(),
         "Terminal" => terminal(),
         "TerminalFont" => terminal_font(),
+        "TerminalSize" => terminal_size(),
         "CPU" => cpu(),
+        "CPUUsage" => Vec::new(),
+        "CPUFrequency" => cpu_frequency(),
         "GPU" => gpu(),
+        "GPUUsage" => Vec::new(),
         "Memory" => memory(),
         "Swap" => swap(),
         "Disk" => disk(),
-        "LocalIp" => local_ip(),
+        "PhysicalDisk" => physical_disk(),
+        "DiskIO" => Vec::new(),
+        "PhysicalDiskIO" => Vec::new(),
+        "LocalIp" | "HostIP" => local_ip(),
+        "PublicIp" => public_ip(),
         "Battery" => battery(),
+        "BatteryStatus" => battery_status(),
+        "BatteryCycles" => battery_cycles(),
         "PowerAdapter" => power_adapter(),
         "Locale" => locale(),
+        "Users" => users(),
+        "Motherboard" => motherboard(),
+        "Bios" => Vec::new(),
+        "Chassis" => chassis(),
+        "Sound" => sound(),
+        "Bluetooth" => bluetooth(),
+        "Wifi" => wifi(),
+        "NetworkIO" => network_io(),
+        "Media" => media(),
+        "Monitor" => monitor(),
+        "Container" => container(),
+        "Virtualization" => virtualization(),
+        "Temperature" => temperature(),
+        "Fans" => fans(),
+        "PhysicalMemory" => physical_memory(),
+        "Systemd" => Vec::new(),
+        "InitSystem" => init_system(),
+        "PackageManager" => package_manager(),
+        "OpenGL" => opengl_version(),
+        "Vulkan" => vulkan_version(),
+        "GTK" => gtk_version(),
+        "Qt" => qt_version(),
+        "DiskUsage" => disk(),
         _ => vec![ModuleResult { key: name.to_string(), value: "unknown module".to_string() }],
     }
 }
 
-// ── Module Implementations ──
+// ── OS ──
 
 fn os() -> Vec<ModuleResult> {
     let version = sysctl_str("kern.osproductversion");
@@ -151,6 +206,31 @@ fn os() -> Vec<ModuleResult> {
     vec![ModuleResult { key: "OS".to_string(), value }]
 }
 
+fn os_build() -> Vec<ModuleResult> {
+    let build = sysctl_str("kern.osversion");
+    if let Some(b) = build {
+        vec![ModuleResult { key: "Build".to_string(), value: b }]
+    } else {
+        Vec::new()
+    }
+}
+
+fn architecture() -> Vec<ModuleResult> {
+    let mach = sysctl_str("hw.machine");
+    if let Some(m) = mach {
+        let mapped = match m.as_str() {
+            "x86_64" => "x86_64",
+            "arm64" => "ARM64",
+            _ => &m,
+        };
+        vec![ModuleResult { key: "Architecture".to_string(), value: mapped.to_string() }]
+    } else {
+        Vec::new()
+    }
+}
+
+// ── Host ──
+
 fn host() -> Vec<ModuleResult> {
     let model = sysctl_str("hw.model");
     if let Some(m) = model {
@@ -160,6 +240,33 @@ fn host() -> Vec<ModuleResult> {
     }
 }
 
+fn motherboard() -> Vec<ModuleResult> {
+    let board = io_service_string("AppleACPIPlatformExpert", "board-id");
+    if let Some(b) = board {
+        vec![ModuleResult { key: "Motherboard".to_string(), value: b }]
+    } else {
+        Vec::new()
+    }
+}
+
+fn chassis() -> Vec<ModuleResult> {
+    let model = sysctl_str("hw.model").unwrap_or_default();
+    let lower = model.to_lowercase();
+    if lower.contains("book") || lower.contains("macbook") {
+        vec![ModuleResult { key: "Chassis".to_string(), value: "Laptop".to_string() }]
+    } else if lower.contains("mini") || lower.contains("macmini") {
+        vec![ModuleResult { key: "Chassis".to_string(), value: "Desktop".to_string() }]
+    } else if lower.contains("pro") || lower.contains("macpro") || lower.contains("studio") {
+        vec![ModuleResult { key: "Chassis".to_string(), value: "Desktop".to_string() }]
+    } else if lower.contains("imac") {
+        vec![ModuleResult { key: "Chassis".to_string(), value: "All-in-One".to_string() }]
+    } else {
+        vec![ModuleResult { key: "Chassis".to_string(), value: model }]
+    }
+}
+
+// ── Kernel ──
+
 fn kernel() -> Vec<ModuleResult> {
     let release = sysctl_str("kern.osrelease");
     match release {
@@ -168,8 +275,9 @@ fn kernel() -> Vec<ModuleResult> {
     }
 }
 
+// ── Uptime ──
+
 fn uptime() -> Vec<ModuleResult> {
-    // Get boot time via sysctl kern.boottime (struct timeval)
     let name = std::ffi::CString::new("kern.boottime").ok()?;
     let mut boottime: libc::timeval = unsafe { std::mem::zeroed() };
     let mut size = std::mem::size_of::<libc::timeval>() as libc::size_t;
@@ -191,6 +299,33 @@ fn uptime() -> Vec<ModuleResult> {
     vec![ModuleResult { key: "Uptime".to_string(), value }]
 }
 
+// ── Processes ──
+
+fn processes() -> Vec<ModuleResult> {
+    let nprocs = sysctl_i32("kern.nprocs");
+    if let Some(n) = nprocs {
+        vec![ModuleResult { key: "Processes".to_string(), value: n.to_string() }]
+    } else {
+        Vec::new()
+    }
+}
+
+// ── LoadAvg ──
+
+fn load_avg() -> Vec<ModuleResult> {
+    let mut loadavg: [f64; 3] = [0.0; 3];
+    unsafe {
+        libc::getloadavg(&mut loadavg as *mut f64, 3);
+    }
+    if loadavg[0] > 0.0 || loadavg[1] > 0.0 || loadavg[2] > 0.0 {
+        vec![ModuleResult { key: "Load Average".to_string(), value: format!("{:.2} {:.2} {:.2}", loadavg[0], loadavg[1], loadavg[2]) }]
+    } else {
+        Vec::new()
+    }
+}
+
+// ── Packages ──
+
 fn packages() -> Vec<ModuleResult> {
     let mut counts: Vec<String> = Vec::new();
     for p in &["/usr/local/Cellar", "/opt/homebrew/Cellar"] {
@@ -203,9 +338,38 @@ fn packages() -> Vec<ModuleResult> {
         let count = entries.count();
         if count > 0 { counts.push(format!("ports:{count}")); }
     }
+    if Path::new("/usr/bin/apk").exists() {
+        if let Ok(entries) = std::fs::read_dir("/etc/apk/cache") {
+            let count = entries.count();
+            if count > 0 { counts.push(format!("apk:{count}")); }
+        }
+    }
     if counts.is_empty() { return Vec::new(); }
     vec![ModuleResult { key: "Packages".to_string(), value: counts.join(" / ") }]
 }
+
+fn package_manager() -> Vec<ModuleResult> {
+    let mut managers: Vec<String> = Vec::new();
+    if Path::new("/usr/local/Cellar").exists() || Path::new("/opt/homebrew/Cellar").exists() {
+        managers.push("homebrew".to_string());
+    }
+    if Path::new("/opt/local/var/macports").exists() {
+        managers.push("macports".to_string());
+    }
+    if Path::new("/usr/bin/apk").exists() {
+        managers.push("apk".to_string());
+    }
+    if Path::new("/usr/bin/nix").exists() {
+        managers.push("nix".to_string());
+    }
+    if managers.is_empty() {
+        Vec::new()
+    } else {
+        vec![ModuleResult { key: "Package Manager".to_string(), value: managers.join(", ") }]
+    }
+}
+
+// ── Shell ──
 
 fn shell() -> Vec<ModuleResult> {
     let shell = std::env::var("SHELL").ok()
@@ -213,6 +377,8 @@ fn shell() -> Vec<ModuleResult> {
         .unwrap_or_else(|| "unknown".to_string());
     vec![ModuleResult { key: "Shell".to_string(), value: shell }]
 }
+
+// ── Display ──
 
 fn display() -> Vec<ModuleResult> {
     unsafe {
@@ -226,6 +392,8 @@ fn display() -> Vec<ModuleResult> {
         vec![ModuleResult { key: "Display".to_string(), value: format!("{w}x{h}") }]
     }
 }
+
+// ── DE / WM ──
 
 fn de() -> Vec<ModuleResult> {
     vec![ModuleResult { key: "DE".to_string(), value: "Aqua".to_string() }]
@@ -241,11 +409,12 @@ fn icons() -> Vec<ModuleResult> { Vec::new() }
 fn font() -> Vec<ModuleResult> { Vec::new() }
 fn cursor() -> Vec<ModuleResult> { Vec::new() }
 
+// ── Terminal ──
+
 fn terminal() -> Vec<ModuleResult> {
     let ppid = unsafe { libc::getppid() };
-    let known_terms = ["Terminal", "iTerm2", "Alacritty", "kitty", "WezTerm", "Hyper", "Tabby", "Warp"];
+    let known_terms = ["Terminal", "iTerm2", "Alacritty", "kitty", "WezTerm", "Hyper", "Tabby", "Warp", "Ghostty", "Rio", "Contour"];
 
-    // Walk process parent chain via proc_pidpath
     let mut current = ppid;
     for _ in 0..10 {
         if current <= 1 { break; }
@@ -261,11 +430,10 @@ fn terminal() -> Vec<ModuleResult> {
             }
         }
         if lower == "bash" || lower == "zsh" || lower == "fish" || lower == "sh" || lower == "dash" {
-            // shell, walk up
         } else if lower == "login" || lower == "loginwindow" || lower == "launchd" {
             break;
         }
-        break; // simplified
+        break;
     }
     if let Ok(term) = std::env::var("TERM") {
         if term != "dumb" {
@@ -275,7 +443,24 @@ fn terminal() -> Vec<ModuleResult> {
     Vec::new()
 }
 
+fn terminal_size() -> Vec<ModuleResult> {
+    if let (Ok(cols), Ok(lines)) = (std::env::var("COLUMNS"), std::env::var("LINES")) {
+        vec![ModuleResult { key: "Terminal Size".to_string(), value: format!("{cols}x{lines}") }]
+    } else {
+        unsafe {
+            let mut ws: libc::winsize = std::mem::zeroed();
+            if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
+                vec![ModuleResult { key: "Terminal Size".to_string(), value: format!("{}x{}", ws.ws_col, ws.ws_row) }]
+            } else {
+                Vec::new()
+            }
+        }
+    }
+}
+
 fn terminal_font() -> Vec<ModuleResult> { Vec::new() }
+
+// ── CPU ──
 
 fn cpu() -> Vec<ModuleResult> {
     let brand = sysctl_str("machdep.cpu.brand_string");
@@ -289,10 +474,30 @@ fn cpu() -> Vec<ModuleResult> {
     vec![ModuleResult { key: "CPU".to_string(), value }]
 }
 
+fn cpu_frequency() -> Vec<ModuleResult> {
+    let freq = sysctl_u64("hw.cpufrequency");
+    if let Some(f) = freq {
+        let ghz = f as f64 / 1_000_000_000.0;
+        vec![ModuleResult { key: "CPU Freq".to_string(), value: format!("{:.2} GHz", ghz) }]
+    } else {
+        // Try cpu frequency max
+        let freq_max = sysctl_u64("hw.cpufrequency_max");
+        if let Some(f) = freq_max {
+            let ghz = f as f64 / 1_000_000_000.0;
+            vec![ModuleResult { key: "CPU Freq".to_string(), value: format!("{:.2} GHz (max)", ghz) }]
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+// ── GPU ──
+
 fn gpu() -> Vec<ModuleResult> {
     unsafe {
         let gpu_names = ["AGXAccelerator", "AMDRadeonAccelerator", "IntelAccelerator",
-                         "AMDRadeonX5000", "AppleGraphicsControl", "AMDRadeonX6000"];
+                         "AMDRadeonX5000", "AppleGraphicsControl", "AMDRadeonX6000",
+                         "AMDRadeonX6000F"];
         let mut gpus: Vec<String> = Vec::new();
         for gname in &gpu_names {
             let matching = IOServiceNameMatching(std::ffi::CString::new(*gname).unwrap().as_ptr());
@@ -315,11 +520,33 @@ fn gpu() -> Vec<ModuleResult> {
             }
             IOObjectRelease(iterator);
         }
+        if gpus.is_empty() {
+            // fallback: try AppleGraphicsControl
+            let matching = IOServiceNameMatching(std::ffi::CString::new("AppleGraphicsControl").unwrap().as_ptr());
+            if !matching.is_null() {
+                let mut iterator: libc::c_uint = 0;
+                if IOServiceGetMatchingServices(0, matching, &mut iterator) == 0 {
+                    let svc = IOIteratorNext(iterator);
+                    if svc != 0 {
+                        let key = cfstring("IOPropertyMatch");
+                        if !key.is_null() {
+                            let val = IORegistryEntryCreateCFProperty(svc, key, std::ptr::null_mut(), 0);
+                            cf_to_string(val);
+                            CFRelease(key);
+                        }
+                        IOObjectRelease(svc);
+                    }
+                    IOObjectRelease(iterator);
+                }
+            }
+        }
         gpus.dedup();
         if gpus.is_empty() { return Vec::new(); }
         vec![ModuleResult { key: "GPU".to_string(), value: gpus.join(" / ") }]
     }
 }
+
+// ── Memory / Swap ──
 
 fn memory() -> Vec<ModuleResult> {
     let total = sysctl_u64("hw.memsize");
@@ -343,6 +570,8 @@ fn swap() -> Vec<ModuleResult> {
     }
 }
 
+// ── Disk ──
+
 fn disk() -> Vec<ModuleResult> {
     let cpath = match std::ffi::CString::new("/") {
         Ok(p) => p,
@@ -363,6 +592,38 @@ fn disk() -> Vec<ModuleResult> {
         vec![ModuleResult { key: "Disk".to_string(), value: format!("{} / {}", fmt_bytes(used), fmt_bytes(total)) }]
     }
 }
+
+fn physical_disk() -> Vec<ModuleResult> {
+    let media_path = Path::new("/sys/block");
+    if media_path.is_dir() {
+        let mut disks: Vec<String> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(media_path) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("disk") || name.starts_with("nvme") {
+                    disks.push(name);
+                }
+            }
+        }
+        if !disks.is_empty() {
+            return vec![ModuleResult { key: "Physical Disk".to_string(), value: disks.join(" / ") }];
+        }
+    }
+    // Try diskutil
+    if let Ok(output) = std::process::Command::new("diskutil")
+        .args(["list", "-plist", "physical"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let count = stdout.matches("DeviceIdentifier").count();
+        if count > 0 {
+            return vec![ModuleResult { key: "Physical Disk".to_string(), value: format!("{count} disk(s)") }];
+        }
+    }
+    Vec::new()
+}
+
+// ── Local IP ──
 
 fn local_ip() -> Vec<ModuleResult> {
     unsafe {
@@ -386,6 +647,25 @@ fn local_ip() -> Vec<ModuleResult> {
         vec![ModuleResult { key: "Local IP".to_string(), value: ips.join(" / ") }]
     }
 }
+
+// ── Public IP ──
+
+fn public_ip() -> Vec<ModuleResult> {
+    let providers = ["https://api.ipify.org", "https://ident.me", "https://icanhazip.com"];
+    for url in &providers {
+        if let Ok(resp) = ureq::get(*url).call() {
+            if let Ok(body) = resp.into_body().read_to_string() {
+                let ip = body.trim().to_string();
+                if !ip.is_empty() {
+                    return vec![ModuleResult { key: "Public IP".to_string(), value: ip }];
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+// ── Battery ──
 
 fn battery() -> Vec<ModuleResult> {
     unsafe {
@@ -426,9 +706,81 @@ fn battery() -> Vec<ModuleResult> {
     }
 }
 
-fn power_adapter() -> Vec<ModuleResult> {
-    Vec::new()
+fn battery_status() -> Vec<ModuleResult> {
+    unsafe {
+        let matching = IOServiceNameMatching(std::ffi::CString::new("AppleSmartBattery").unwrap().as_ptr());
+        if matching.is_null() { return Vec::new(); }
+        let mut iterator: libc::c_uint = 0;
+        if IOServiceGetMatchingServices(0, matching, &mut iterator) != 0 { return Vec::new(); }
+        let service = IOIteratorNext(iterator);
+        IOObjectRelease(iterator);
+        if service == 0 { return Vec::new(); }
+
+        let keys = ["AppleRawMaxCapacity", "AppleRawDesignCapacity", "Temperature", "Manufacturer"];
+        let cf_keys: Vec<_> = keys.iter().map(|k| cfstring(k)).collect();
+        let mut health_info: Vec<String> = Vec::new();
+
+        for &ck in &cf_keys {
+            if !ck.is_null() {
+                let val = IORegistryEntryCreateCFProperty(service, ck, std::ptr::null_mut(), 0);
+                if !val.is_null() {
+                    if CFGetTypeID(val) == CFNumberGetTypeID() {
+                        let mut n: i64 = 0;
+                        CFNumberGetValue(val, 15, &mut n as *mut _ as *mut libc::c_void);
+                        let key_str = cfstring(keys[&cf_keys as *const _ as usize % keys.len()]);
+                        // just collect for now
+                        drop(key_str);
+                    } else if CFGetTypeID(val) == CFStringGetTypeID() {
+                        if let Some(s) = cf_to_string(val) {
+                            health_info.push(s);
+                        }
+                        continue;
+                    }
+                    CFRelease(val);
+                }
+            }
+        }
+        for ck in cf_keys { if !ck.is_null() { CFRelease(ck); } }
+        IOObjectRelease(service);
+
+        if health_info.is_empty() {
+            Vec::new()
+        } else {
+            vec![ModuleResult { key: "Battery Status".to_string(), value: health_info.join(" / ") }]
+        }
+    }
 }
+
+fn battery_cycles() -> Vec<ModuleResult> {
+    unsafe {
+        let matching = IOServiceNameMatching(std::ffi::CString::new("AppleSmartBattery").unwrap().as_ptr());
+        if matching.is_null() { return Vec::new(); }
+        let mut iterator: libc::c_uint = 0;
+        if IOServiceGetMatchingServices(0, matching, &mut iterator) != 0 { return Vec::new(); }
+        let service = IOIteratorNext(iterator);
+        IOObjectRelease(iterator);
+        if service == 0 { return Vec::new(); }
+
+        let key = cfstring("CycleCount");
+        let val = IORegistryEntryCreateCFProperty(service, key, std::ptr::null_mut(), 0);
+        CFRelease(key);
+        IOObjectRelease(service);
+
+        if !val.is_null() && CFGetTypeID(val) == CFNumberGetTypeID() {
+            let mut n: i64 = 0;
+            CFNumberGetValue(val, 15, &mut n as *mut _ as *mut libc::c_void);
+            CFRelease(val);
+            vec![ModuleResult { key: "Battery Cycles".to_string(), value: n.to_string() }]
+        } else {
+            if !val.is_null() { CFRelease(val); }
+            Vec::new()
+        }
+    }
+}
+
+fn power_adapter() -> Vec<ModuleResult> { Vec::new() }
+
+// ── Locale ──
 
 fn locale() -> Vec<ModuleResult> {
     let locale = std::env::var("LANG").ok().or_else(|| std::env::var("LC_ALL").ok());
@@ -436,4 +788,396 @@ fn locale() -> Vec<ModuleResult> {
         Some(l) => vec![ModuleResult { key: "Locale".to_string(), value: l }],
         None => Vec::new(),
     }
+}
+
+// ── Users ──
+
+fn users() -> Vec<ModuleResult> {
+    let content = match std::fs::read_to_string("/etc/passwd").ok() {
+        Some(c) => c,
+        None => return Vec::new(),
+    };
+    let users: Vec<&str> = content
+        .lines()
+        .filter(|l| {
+            let parts: Vec<&str> = l.split(':').collect();
+            parts.len() >= 7
+                && parts[2] != "0"
+                && parts[6] != "/usr/sbin/nologin"
+                && parts[6] != "/sbin/nologin"
+                && parts[6] != "/bin/false"
+        })
+        .map(|l| l.split(':').next().unwrap_or(""))
+        .filter(|u| !u.is_empty())
+        .collect();
+
+    if users.is_empty() {
+        Vec::new()
+    } else {
+        vec![ModuleResult { key: "Users".to_string(), value: format!("{} ({})", users.len(), users.join(", ")) }]
+    }
+}
+
+// ── Sound ──
+
+fn sound() -> Vec<ModuleResult> {
+    let devices = io_service_string("IOAudioEngine", "IOAudioDeviceName");
+    if let Some(d) = devices {
+        vec![ModuleResult { key: "Sound".to_string(), value: d }]
+    } else {
+        Vec::new()
+    }
+}
+
+// ── Bluetooth ──
+
+fn bluetooth() -> Vec<ModuleResult> {
+    let bt = io_service_string("IOBluetoothHCIController", "IOBluetoothDeviceName");
+    if let Some(b) = bt {
+        vec![ModuleResult { key: "Bluetooth".to_string(), value: b }]
+    } else {
+        Vec::new()
+    }
+}
+
+// ── WiFi ──
+
+fn wifi() -> Vec<ModuleResult> {
+    if let Ok(output) = std::process::Command::new("/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport")
+        .arg("-I")
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains("SSID") {
+                let ssid = line.split(':').nth(1).unwrap_or("").trim().to_string();
+                if !ssid.is_empty() {
+                    return vec![ModuleResult { key: "WiFi".to_string(), value: format!("Connected to {ssid}") }];
+                }
+            }
+        }
+        // If airport fails, just say WiFi is available
+        return vec![ModuleResult { key: "WiFi".to_string(), value: "Available".to_string() }];
+    }
+    // Check for WiFi hardware
+    let hardware = io_service_string("IO80211Interface", "IOInterfaceName");
+    if let Some(h) = hardware {
+        vec![ModuleResult { key: "WiFi".to_string(), value: h }]
+    } else {
+        Vec::new()
+    }
+}
+
+// ── Network IO ──
+
+fn network_io() -> Vec<ModuleResult> {
+    unsafe {
+        let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
+        if libc::getifaddrs(&mut ifap) != 0 { return Vec::new(); }
+
+        // We can't easily get IO stats from ifaddrs; use sysctl
+        let mut mib: [i32; 6] = [
+            libc::CTL_NET, libc::PF_ROUTE, 0, 0, libc::NET_RT_IFLIST2, 0
+        ];
+        let mut size: libc::size_t = 0;
+        if libc::sysctl(mib.as_mut_ptr(), 6, std::ptr::null_mut(), &mut size, std::ptr::null_mut(), 0) != 0 {
+            libc::freeifaddrs(ifap);
+            return Vec::new();
+        }
+        let mut buf = vec![0u8; size];
+        if libc::sysctl(mib.as_mut_ptr(), 6, buf.as_mut_ptr() as *mut libc::c_void, &mut size, std::ptr::null_mut(), 0) != 0 {
+            libc::freeifaddrs(ifap);
+            return Vec::new();
+        }
+        libc::freeifaddrs(ifap);
+
+        // Parse the data for network IO
+        let mut total_rx: u64 = 0;
+        let mut total_tx: u64 = 0;
+        let mut pos = 0;
+        while pos < size as usize {
+            let msghdr = &*(buf[pos..].as_ptr() as *const libc::if_msghdr);
+            if msghdr.ifm_type == libc::RTM_IFINFO2 {
+                let ifmsg = &*(buf[pos..].as_ptr() as *const libc::if_msghdr2);
+                total_rx += ifmsg.ifm_data.ifi_ibytes;
+                total_tx += ifmsg.ifm_data.ifi_obytes;
+            }
+            pos += msghdr.ifm_msglen as usize;
+        }
+
+        fn fmt_bytes(b: u64) -> String {
+            if b >= 1_073_741_824 { format!("{:.1} GiB", b as f64 / 1_073_741_824.0) }
+            else if b >= 1_048_576 { format!("{:.1} MiB", b as f64 / 1_048_576.0) }
+            else { format!("{b} B") }
+        }
+
+        vec![
+            ModuleResult { key: "Network RX".to_string(), value: fmt_bytes(total_rx) },
+            ModuleResult { key: "Network TX".to_string(), value: fmt_bytes(total_tx) },
+        ]
+    }
+}
+
+// ── Media ──
+
+fn media() -> Vec<ModuleResult> {
+    let players = ["Spotify", "Music", "iTunes", "VLC", "IINA", "mpv"];
+    let mut found: Vec<String> = Vec::new();
+
+    if let Ok(output) = std::process::Command::new("pgrep").args(["-l"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let lower = line.to_lowercase();
+            for player in &players {
+                if lower.contains(&player.to_lowercase()) && !found.contains(&player.to_string()) {
+                    found.push(player.to_string());
+                }
+            }
+        }
+    }
+
+    if found.is_empty() {
+        Vec::new()
+    } else {
+        vec![ModuleResult { key: "Media".to_string(), value: found.join(", ") }]
+    }
+}
+
+// ── Monitor ──
+
+fn monitor() -> Vec<ModuleResult> {
+    let edid_path = Path::new("/var/log/system.log");
+    if edid_path.exists() {
+        // Try to get display info via IOKit
+        if let Ok(output) = std::process::Command::new("system_profiler")
+            .args(["SPDisplaysDataType"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut monitors: Vec<String> = Vec::new();
+            for line in stdout.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("Resolution:") || trimmed.starts_with("Display Type:") {
+                    let val = trimmed.split(':').nth(1).unwrap_or("").trim().to_string();
+                    if !val.is_empty() {
+                        monitors.push(val);
+                    }
+                }
+                if trimmed.starts_with("Vendor:") {
+                    let val = trimmed.split(':').nth(1).unwrap_or("").trim().to_string();
+                    if !val.is_empty() {
+                        monitors.push(val);
+                    }
+                }
+            }
+            if !monitors.is_empty() {
+                return vec![ModuleResult { key: "Monitor".to_string(), value: monitors.join(", ") }];
+            }
+        }
+    }
+    Vec::new()
+}
+
+// ── Container ──
+
+fn container() -> Vec<ModuleResult> {
+    if Path::new("/.dockerenv").exists() {
+        return vec![ModuleResult { key: "Container".to_string(), value: "Docker".to_string() }];
+    }
+    if Path::new("/proc/1/cgroup").exists() {
+        if let Ok(content) = std::fs::read_to_string("/proc/1/cgroup") {
+            if content.contains("docker") {
+                return vec![ModuleResult { key: "Container".to_string(), value: "Docker".to_string() }];
+            }
+        }
+    }
+    Vec::new()
+}
+
+// ── Virtualization ──
+
+fn virtualization() -> Vec<ModuleResult> {
+    // Check for Hypervisor framework
+    let hv = sysctl_i32("kern.hv_vmm_present");
+    if hv == Some(1) {
+        return vec![ModuleResult { key: "Virtualization".to_string(), value: "Apple Hypervisor".to_string() }];
+    }
+    // Check for VM in CPU features
+    if let Some(features) = sysctl_str("machdep.cpu.features") {
+        let lower = features.to_lowercase();
+        if lower.contains("hypervisor") {
+            return vec![ModuleResult { key: "Virtualization".to_string(), value: "VM (guest)".to_string() }];
+        }
+    }
+    Vec::new()
+}
+
+// ── Temperature ──
+
+fn temperature() -> Vec<ModuleResult> {
+    unsafe {
+        let matching = IOServiceNameMatching(std::ffi::CString::new("AppleSMC").unwrap().as_ptr());
+        if matching.is_null() { return Vec::new(); }
+        let mut iterator: libc::c_uint = 0;
+        if IOServiceGetMatchingServices(0, matching, &mut iterator) != 0 { return Vec::new(); }
+        let svc = IOIteratorNext(iterator);
+        IOObjectRelease(iterator);
+        if svc == 0 { return Vec::new(); }
+        IOObjectRelease(svc);
+    }
+
+    if let Ok(output) = std::process::Command::new("osx-cpu-temp").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !stdout.is_empty() {
+            return vec![ModuleResult { key: "Temperature".to_string(), value: stdout }];
+        }
+    }
+    // Try reading from SMC keys via pmset
+    if let Ok(output) = std::process::Command::new("pmset").args(["-g", "therm"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains("CPU") || line.contains("cpu") || line.contains("degree") {
+                let val = line.trim().to_string();
+                if !val.is_empty() {
+                    return vec![ModuleResult { key: "Temperature".to_string(), value: val }];
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+// ── Fans ──
+
+fn fans() -> Vec<ModuleResult> {
+    if let Ok(output) = std::process::Command::new("osx-cpu-temp").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.contains("fan") || stdout.contains("Fan") {
+            return vec![ModuleResult { key: "Fans".to_string(), value: stdout.trim().to_string() }];
+        }
+    }
+    Vec::new()
+}
+
+// ── Physical Memory ──
+
+fn physical_memory() -> Vec<ModuleResult> {
+    if let Ok(output) = std::process::Command::new("system_profiler")
+        .args(["SPMemoryDataType"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let count = stdout.matches("Memory Slot").count();
+        if count > 0 {
+            return vec![ModuleResult { key: "Physical Memory".to_string(), value: format!("{} slots", count) }];
+        }
+    }
+    Vec::new()
+}
+
+// ── InitSystem ──
+
+fn init_system() -> Vec<ModuleResult> {
+    vec![ModuleResult { key: "Init".to_string(), value: "launchd".to_string() }]
+}
+
+// ── OpenGL ──
+
+fn opengl_version() -> Vec<ModuleResult> {
+    if let Ok(output) = std::process::Command::new("system_profiler")
+        .args(["SPDisplaysDataType"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains("OpenGL") || line.contains("Metal") {
+                let val = line.split(':').nth(1).unwrap_or(line).trim().to_string();
+                if !val.is_empty() {
+                    return vec![ModuleResult { key: "OpenGL".to_string(), value: val }];
+                }
+            }
+        }
+        // Even if no version string, macOS always has OpenGL
+        return vec![ModuleResult { key: "OpenGL".to_string(), value: "Present".to_string() }];
+    }
+    // Default since macOS always has OpenGL
+    vec![ModuleResult { key: "OpenGL".to_string(), value: "Present".to_string() }]
+}
+
+// ── Vulkan ──
+
+fn vulkan_version() -> Vec<ModuleResult> {
+    if let Ok(output) = std::process::Command::new("vulkaninfo").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains("Vulkan API version") || line.contains("apiVersion") {
+                let version = line.split(':').nth(1).unwrap_or(line).trim().to_string();
+                return vec![ModuleResult { key: "Vulkan".to_string(), value: version }];
+            }
+        }
+        return vec![ModuleResult { key: "Vulkan".to_string(), value: "Present".to_string() }];
+    }
+    // MoltenVK might be installed
+    if Path::new("/usr/local/lib/libMoltenVK.dylib").exists() || Path::new("/opt/homebrew/lib/libMoltenVK.dylib").exists() {
+        return vec![ModuleResult { key: "Vulkan".to_string(), value: "MoltenVK".to_string() }];
+    }
+    Vec::new()
+}
+
+// ── GTK ──
+
+fn gtk_version() -> Vec<ModuleResult> {
+    if let Ok(output) = std::process::Command::new("pkg-config")
+        .args(["--modversion", "gtk+-3.0"])
+        .output()
+    {
+        if output.status.success() {
+            let v = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !v.is_empty() {
+                return vec![ModuleResult { key: "GTK".to_string(), value: v }];
+            }
+        }
+    }
+    if let Ok(output) = std::process::Command::new("pkg-config")
+        .args(["--modversion", "gtk+-4.0"])
+        .output()
+    {
+        if output.status.success() {
+            let v = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !v.is_empty() {
+                return vec![ModuleResult { key: "GTK".to_string(), value: v }];
+            }
+        }
+    }
+    Vec::new()
+}
+
+// ── Qt ──
+
+fn qt_version() -> Vec<ModuleResult> {
+    if let Ok(output) = std::process::Command::new("qmake")
+        .arg("-query")
+        .arg("QT_VERSION")
+        .output()
+    {
+        if output.status.success() {
+            let v = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !v.is_empty() {
+                return vec![ModuleResult { key: "Qt".to_string(), value: v }];
+            }
+        }
+    }
+    if let Ok(output) = std::process::Command::new("qmake6")
+        .arg("-query")
+        .arg("QT_VERSION")
+        .output()
+    {
+        if output.status.success() {
+            let v = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !v.is_empty() {
+                return vec![ModuleResult { key: "Qt".to_string(), value: v }];
+            }
+        }
+    }
+    Vec::new()
 }

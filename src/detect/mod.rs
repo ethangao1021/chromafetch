@@ -48,6 +48,7 @@ pub fn run_detection(enabled: &[String], disabled: &[String]) -> SystemInfo {
 
 fn detect_module(name: &str) -> Vec<ModuleResult> {
     match name {
+        // Cross-platform modules
         "Title" => {
             let user = whoami::username();
             let host = whoami::fallible::hostname().unwrap_or_else(|_| "unknown".into());
@@ -62,6 +63,118 @@ fn detect_module(name: &str) -> Vec<ModuleResult> {
         "Colors" => {
             vec![ModuleResult { key: String::new(), value: "■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■".to_string() }]
         }
+        "Editor" => {
+            let editor = std::env::var("EDITOR")
+                .or_else(|_| std::env::var("VISUAL"))
+                .unwrap_or_else(|_| String::new());
+            if editor.is_empty() {
+                Vec::new()
+            } else {
+                let name = std::path::Path::new(&editor)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&editor);
+                vec![ModuleResult { key: "Editor".to_string(), value: name.to_string() }]
+            }
+        }
+        "DateTime" => {
+            let dt = datetime_now();
+            vec![ModuleResult { key: "Date".to_string(), value: dt }]
+        }
+        "Timezone" => {
+            let tz = timezone_name();
+            if !tz.is_empty() {
+                vec![ModuleResult { key: "Timezone".to_string(), value: tz }]
+            } else {
+                Vec::new()
+            }
+        }
+        "TerminalColorSupport" => {
+            let colorterm = std::env::var("COLORTERM").unwrap_or_default();
+            if colorterm.contains("truecolor") || colorterm.contains("24bit") {
+                vec![ModuleResult { key: "Colors".to_string(), value: "truecolor".to_string() }]
+            } else if colorterm.contains("256") {
+                vec![ModuleResult { key: "Colors".to_string(), value: "256color".to_string() }]
+            } else {
+                match std::env::var("TERM").unwrap_or_default().as_str() {
+                    t if t.contains("256color") => vec![ModuleResult { key: "Colors".to_string(), value: "256color".to_string() }],
+                    t if t == "xterm" || t == "ansi" => vec![ModuleResult { key: "Colors".to_string(), value: "16".to_string() }],
+                    _ => Vec::new(),
+                }
+            }
+        }
+        // Platform-specific modules delegated to backends
         _ => backend::detect(name),
     }
+}
+
+fn datetime_now() -> String {
+    unsafe {
+        let mut tv: libc::time_t = 0;
+        libc::time(&mut tv);
+        #[cfg(unix)]
+        let tm = {
+            let tm_ptr = libc::localtime(&tv);
+            if tm_ptr.is_null() {
+                return String::new();
+            }
+            *tm_ptr
+        };
+        #[cfg(windows)]
+        let tm = {
+            let mut tm: libc::tm = std::mem::zeroed();
+            if libc::localtime_s(&mut tm, &tv) != 0 {
+                return String::new();
+            }
+            tm
+        };
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min,
+            tm.tm_sec,
+        )
+    }
+}
+
+fn timezone_name() -> String {
+    if let Ok(tz) = std::env::var("TZ") {
+        if !tz.is_empty() {
+            return tz;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(link) = std::fs::read_link("/etc/localtime") {
+            if let Some(path) = link.to_str() {
+                if let Some(name) = path.rsplit("/zoneinfo/").next() {
+                    return name.to_string();
+                }
+                if let Some(name) = path.rsplit("/").next() {
+                    return name.to_string();
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(link) = std::fs::read_link("/etc/localtime") {
+            if let Some(path) = link.to_str() {
+                if let Some(name) = path.rsplit("/zoneinfo/").next() {
+                    return name.to_string();
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let tz = crate::detect::windows_backend::windows_timezone();
+        if !tz.is_empty() {
+            return tz;
+        }
+    }
+    String::new()
 }

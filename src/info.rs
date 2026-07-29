@@ -53,8 +53,23 @@ impl Default for DisplayConfig {
 }
 
 pub const DEFAULT_MODULE_ORDER: &[&str] = &[
-    "Title", "Separator", "OS", "Host", "Kernel", "Uptime", "Packages",
-    "Shell", "Display", "DE", "WM", "WMTheme", "Theme", "Icons", "Font",
-    "Cursor", "Terminal", "TerminalFont", "CPU", "GPU", "Memory", "Swap",
-    "Disk", "LocalIp", "Battery", "PowerAdapter", "Locale", "Break", "Colors",
+    "Title", "Separator",
+    "OS", "Host", "Kernel", "Architecture", "OSBuild", "Uptime",
+    "Processes", "LoadAvg", "Packages", "Shell",
+    "Terminal", "TerminalFont", "TerminalSize", "TerminalColorSupport",
+    "CPU", "CPUUsage", "CPUFrequency", "GPU", "GPUUsage",
+    "Memory", "Swap", "Disk", "PhysicalDisk", "DiskIO",
+    "Display", "DE", "DesktopEnvironment", "WM", "WindowManager", "WMTheme",
+    "Theme", "Icons", "Font", "Cursor",
+    "LocalIp", "HostIP", "PublicIp", "Wifi", "Bluetooth", "NetworkIO",
+    "Motherboard", "Bios", "Chassis",
+    "Sound", "Monitor",
+    "Battery", "BatteryStatus", "BatteryCycles", "PowerAdapter",
+    "Temperature", "Fans",
+    "Users", "DateTime", "Timezone", "Locale", "Editor",
+    "Media", "Container", "Virtualization",
+    "InitSystem", "Systemd", "PackageManager", "PhysicalMemory",
+    "OpenGL", "Vulkan", "GTK", "Qt",
+    "DiskUsage", "PhysicalDiskIO",
+    "Break", "Colors",
 ];
