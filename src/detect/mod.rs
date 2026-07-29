@@ -2,18 +2,22 @@ use crate::info::{ModuleResult, SystemInfo};
 
 #[cfg(target_os = "linux")]
 mod linux_backend;
-
 #[cfg(target_os = "linux")]
 use linux_backend as backend;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+mod macos_backend;
+#[cfg(target_os = "macos")]
+use macos_backend as backend;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod unsupported_backend {
     use crate::info::ModuleResult;
     pub fn detect(_name: &str) -> Vec<ModuleResult> {
         vec![ModuleResult { key: _name.to_string(), value: "unavailable on this platform".to_string() }]
     }
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use unsupported_backend as backend;
 
 pub fn run_detection(enabled: &[String], disabled: &[String]) -> SystemInfo {
