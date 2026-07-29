@@ -3,15 +3,35 @@ mod config;
 mod detect;
 mod display;
 mod flags;
+mod img2ascii;
 mod info;
 mod logo;
 
 use clap::Parser;
+use cli::Commands;
 use config::Config;
 use info::LogoMode;
 
 fn main() {
     let cli = cli::Cli::parse();
+
+    if let Some(cmd) = &cli.command {
+        match cmd {
+            Commands::Ascii { path, width, color, invert, save } => {
+                let opts = img2ascii::AsciiOpts {
+                    width: *width,
+                    color: *color,
+                    invert: *invert,
+                    save: save.clone(),
+                };
+                if let Err(e) = img2ascii::run(path, &opts) {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+        }
+    }
 
     if cli.list_flags {
         for name in flags::list_flags() {

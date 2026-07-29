@@ -1,8 +1,12 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "sysfetch", version, about = "Fast system info fetcher with pride flag color themes")]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
     #[arg(short = 'c', long, help = "Run interactive configuration wizard")]
     pub configure: bool,
 
@@ -35,4 +39,25 @@ pub struct Cli {
 
     #[arg(short = 'w', long, value_name = "SECONDS", help = "Watch mode: refresh every N seconds")]
     pub watch: Option<u64>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    #[command(about = "Convert an image to ASCII art")]
+    Ascii {
+        #[arg(help = "Path to the image file")]
+        path: String,
+
+        #[arg(long, default_value = "80", help = "Output width in characters")]
+        width: u32,
+
+        #[arg(long, help = "Use ANSI truecolor output")]
+        color: bool,
+
+        #[arg(long, help = "Invert brightness mapping")]
+        invert: bool,
+
+        #[arg(long, value_name = "PATH", help = "Save to file instead of stdout")]
+        save: Option<PathBuf>,
+    },
 }
