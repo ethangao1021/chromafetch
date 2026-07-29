@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "sysfetch", version, about = "Fast system info fetcher with pride flag color themes")]
+#[command(name = "chromafetch", version, about = "Colorful system info fetcher with pride flag themes")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,

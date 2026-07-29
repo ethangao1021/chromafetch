@@ -167,5 +167,5 @@ fn default_config_path() -> PathBuf {
                 PathBuf::from(home).join(".config")
             })
     };
-    base.join("sysfetch").join("config.toml")
+    base.join("chromafetch").join("config.toml")
 }

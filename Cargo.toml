@@ -1,5 +1,5 @@
 [package]
-name = "sysfetch"
+name = "chromafetch"
 version = "0.1.0"
 edition = "2024"
 
