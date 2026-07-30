@@ -140,59 +140,185 @@ pub fn detect(name: &str) -> Vec<ModuleResult> {
         "Packages" => packages(),
         "Shell" => shell(),
         "Display" => display(),
-        "DE" | "DesktopEnvironment" => de(),
-        "WM" | "WindowManager" => wm(),
+        "DE" => de(),
+        "WM" => wm(),
         "WMTheme" => wm_theme(),
         "Theme" => theme(),
         "Icons" => icons(),
         "Font" => font(),
         "Cursor" => cursor(),
-        "Terminal" => terminal(),
-        "TerminalFont" => terminal_font(),
-        "TerminalSize" => terminal_size(),
-        "CPU" => cpu(),
-        "CPUUsage" => Vec::new(),
-        "CPUFrequency" => cpu_frequency(),
-        "GPU" => gpu(),
-        "GPUUsage" => Vec::new(),
-        "Memory" => memory(),
-        "Swap" => swap(),
+        "Terminal" => terminal_combined(),
+        "CPU" => cpu_combined(),
+        "GPU" => gpu_combined(),
+        "Memory" => memory_combined(),
         "Disk" => disk(),
-        "PhysicalDisk" => physical_disk(),
-        "DiskIO" => Vec::new(),
-        "PhysicalDiskIO" => Vec::new(),
-        "LocalIp" | "HostIP" => local_ip(),
-        "PublicIp" => public_ip(),
-        "Battery" => battery(),
-        "BatteryStatus" => battery_status(),
-        "BatteryCycles" => battery_cycles(),
-        "PowerAdapter" => power_adapter(),
-        "Locale" => locale(),
-        "Users" => users(),
-        "Motherboard" => motherboard(),
-        "Bios" => Vec::new(),
-        "Chassis" => chassis(),
+        "PhysicalDisk" => physical_disk_combined(),
+        "LocalIp" => local_ip_combined(),
+        "Network" => network_combined(),
+        "Motherboard" => motherboard_combined(),
         "Sound" => sound(),
-        "Bluetooth" => bluetooth(),
-        "Wifi" => wifi(),
-        "NetworkIO" => network_io(),
-        "Media" => media(),
         "Monitor" => monitor(),
-        "Container" => container(),
-        "Virtualization" => virtualization(),
-        "Temperature" => temperature(),
-        "Fans" => fans(),
-        "PhysicalMemory" => physical_memory(),
-        "Systemd" => Vec::new(),
+        "Battery" => battery_combined(),
+        "Sensors" => sensors_combined(),
+        "Users" => users(),
+        "Locale" => locale(),
+        "Media" => media(),
+        "Virtualization" => virtualization_combined(),
         "InitSystem" => init_system(),
         "PackageManager" => package_manager(),
-        "OpenGL" => opengl_version(),
-        "Vulkan" => vulkan_version(),
-        "GTK" => gtk_version(),
-        "Qt" => qt_version(),
-        "DiskUsage" => disk(),
+        "PhysicalMemory" => physical_memory(),
+        "Libraries" => libraries_combined(),
         _ => vec![ModuleResult { key: name.to_string(), value: "unknown module".to_string() }],
     }
+}
+
+// ── Combined Modules ──
+
+fn terminal_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in terminal() {
+        results.push(r);
+    }
+    let font = terminal_font();
+    if !font.is_empty() {
+        results.extend(font);
+    }
+    let size = terminal_size();
+    if !size.is_empty() {
+        results.extend(size);
+    }
+    let colorterm = std::env::var("COLORTERM").unwrap_or_default();
+    if colorterm.contains("truecolor") || colorterm.contains("24bit") {
+        results.push(ModuleResult { key: "Colors".to_string(), value: "truecolor".to_string() });
+    } else {
+        match std::env::var("TERM").unwrap_or_default().as_str() {
+            t if t.contains("truecolor") || t.contains("24bit") => results.push(ModuleResult { key: "Colors".to_string(), value: "truecolor".to_string() }),
+            t if t.contains("256color") => results.push(ModuleResult { key: "Colors".to_string(), value: "256color".to_string() }),
+            _ => {}
+        }
+    }
+    results
+}
+
+fn cpu_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in cpu() {
+        results.push(r);
+    }
+    let freq = cpu_frequency();
+    if !freq.is_empty() {
+        results.extend(freq);
+    }
+    results
+}
+
+fn gpu_combined() -> Vec<ModuleResult> {
+    gpu()
+}
+
+fn memory_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in memory() {
+        results.push(r);
+    }
+    for r in swap() {
+        results.push(r);
+    }
+    results
+}
+
+fn physical_disk_combined() -> Vec<ModuleResult> {
+    physical_disk()
+}
+
+fn local_ip_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in local_ip() {
+        results.push(r);
+    }
+    let pub_ip = public_ip();
+    if !pub_ip.is_empty() {
+        results.extend(pub_ip);
+    }
+    results
+}
+
+fn network_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in wifi() {
+        results.push(r);
+    }
+    for r in bluetooth() {
+        results.push(r);
+    }
+    for r in network_io() {
+        results.push(r);
+    }
+    results
+}
+
+fn motherboard_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in motherboard() {
+        results.push(r);
+    }
+    for r in chassis() {
+        results.push(r);
+    }
+    results
+}
+
+fn battery_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in battery() {
+        results.push(r);
+    }
+    for r in battery_status() {
+        results.push(r);
+    }
+    for r in battery_cycles() {
+        results.push(r);
+    }
+    results
+}
+
+fn sensors_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in temperature() {
+        results.push(r);
+    }
+    for r in fans() {
+        results.push(r);
+    }
+    results
+}
+
+fn virtualization_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in container() {
+        results.push(r);
+    }
+    for r in virtualization() {
+        results.push(r);
+    }
+    results
+}
+
+fn libraries_combined() -> Vec<ModuleResult> {
+    let mut results = Vec::new();
+    for r in opengl_version() {
+        results.push(r);
+    }
+    for r in vulkan_version() {
+        results.push(r);
+    }
+    for r in gtk_version() {
+        results.push(r);
+    }
+    for r in qt_version() {
+        results.push(r);
+    }
+    results
 }
 
 // ── OS ──

@@ -48,7 +48,6 @@ pub fn run_detection(enabled: &[String], disabled: &[String]) -> SystemInfo {
 
 fn detect_module(name: &str) -> Vec<ModuleResult> {
     match name {
-        // Cross-platform modules
         "Title" => {
             let user = whoami::username();
             let host = whoami::fallible::hostname().unwrap_or_else(|_| "unknown".into());
@@ -78,32 +77,17 @@ fn detect_module(name: &str) -> Vec<ModuleResult> {
             }
         }
         "DateTime" => {
+            let mut results = Vec::new();
             let dt = datetime_now();
-            vec![ModuleResult { key: "Date".to_string(), value: dt }]
-        }
-        "Timezone" => {
+            if !dt.is_empty() {
+                results.push(ModuleResult { key: "Date".to_string(), value: dt });
+            }
             let tz = timezone_name();
             if !tz.is_empty() {
-                vec![ModuleResult { key: "Timezone".to_string(), value: tz }]
-            } else {
-                Vec::new()
+                results.push(ModuleResult { key: "Timezone".to_string(), value: tz });
             }
+            results
         }
-        "TerminalColorSupport" => {
-            let colorterm = std::env::var("COLORTERM").unwrap_or_default();
-            if colorterm.contains("truecolor") || colorterm.contains("24bit") {
-                vec![ModuleResult { key: "Colors".to_string(), value: "truecolor".to_string() }]
-            } else if colorterm.contains("256") {
-                vec![ModuleResult { key: "Colors".to_string(), value: "256color".to_string() }]
-            } else {
-                match std::env::var("TERM").unwrap_or_default().as_str() {
-                    t if t.contains("256color") => vec![ModuleResult { key: "Colors".to_string(), value: "256color".to_string() }],
-                    t if t == "xterm" || t == "ansi" => vec![ModuleResult { key: "Colors".to_string(), value: "16".to_string() }],
-                    _ => Vec::new(),
-                }
-            }
-        }
-        // Platform-specific modules delegated to backends
         _ => backend::detect(name),
     }
 }
@@ -153,7 +137,7 @@ fn timezone_name() -> String {
                 if let Some(name) = path.rsplit("/zoneinfo/").next() {
                     return name.to_string();
                 }
-                if let Some(name) = path.rsplit("/").next() {
+                if let Some(name) = path.rsplit('/').next() {
                     return name.to_string();
                 }
             }
